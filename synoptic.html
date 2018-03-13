@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<meta http-equiv="content-type" content="application/xhtml+xml; charset=utf-8" />
+<style type="text/css">
+    .line {
+        fill: none;
+        stroke: #ffab00;
+        stroke-width: 1;
+    }
+
+    .well {
+        padding-bottom: 0px !important;
+    }
+
+    .dot {
+        fill: blue;
+        stroke: black;
+    }
+
+    .dot:hover {
+        fill: #66ffcc;
+    }
+
+    .datepicker {
+        cursor: pointer;
+    }
+
+    .container {
+        position: sticky !important;
+        top: 0px;
+        padding-top: 18px !important;
+    }
+</style>
+
+<body>
+    <div class="container well col-md-12">
+        <div class="row">
+            <div class='col-md-2'>
+                <div class="form-group">
+                    <div class='input-group date' id='datetimepicker1'>
+                        <input placeholder="Start-Date" readonly="readonly" type='text' class="form-control" />
+                        <span class="input-group-addon">
+                        <span class="glyphicon glyphicon-calendar"></span>
+                        </span>
+                    </div>
+                </div>
+            </div>
+            <div class='col-md-4'>
+                <select class="form-control" id="metric"></select>
+            </div>
+        </div>
+        <div class="alert alert-info" role="alert">&#x1F6C8; Please choose a start-date and metric that you wish to visualize. Data shown is for 24 hours from start-date. You may hover over the points to get see the coordinates.
+            <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                <span aria-hidden="true">&times;</span>
+            </button>
+        </div>
+    </div>
+</body>
+<script src="https://d3js.org/d3.v4.min.js"></script>
+<script src="https://code.jquery.com/jquery-3.3.1.js" integrity="sha256-2Kok7MbOyxpgUVvAk/HJ2jigOSYS2auK4Pfzbm7uH60=" crossorigin="anonymous"></script>
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.21.0/moment-with-locales.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datepicker/1.7.1/js/bootstrap-datepicker.js"></script>
+<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css">
+<link href="https://cdn.rawgit.com/Eonasdan/bootstrap-datetimepicker/e8bddc60e73c1ec2475f827be36e1957af72e2ea/build/css/bootstrap-datetimepicker.css" rel="stylesheet">
+<script>
+    $('#metric').on("change", function() {
+        onchange();
+    });
+    $('#datetimepicker1').on("change", function() {
+        onchange();
+    });
+    $("#datetimepicker1").datepicker();
+    $("#datetimepicker1").datepicker("setDate", new Date("01/01/2018"));
+
+    function onchange() {
+        let metric = "";
+        let first = 0;
+        if ($("#metric").val() == null) {
+            first = 1;
+            setTimeout(function() {
+                $("#metric").val("PM_25_concentration_set_1");
+                $("#metric").trigger("change");
+            }, 100);
+        }
+
+        metric = $("#metric").val() || "flow_rate_set_1";
+        let dateTime = new Date($("#datetimepicker1").datepicker("getDate"));
+        let date = dateTime.getFullYear() + "" + ("0" + (dateTime.getMonth() + 1)).slice(-2) + "" + ("0" + dateTime.getDate()).slice(-2);
+        drawViz(date, metric, first);
+
+    }
+
+    function drawViz(date, metric, first = 0) {
+        $("svg").remove();
+        let margin = {
+                top: 50,
+                right: 50,
+                bottom: 50,
+                left: 50
+            },
+            width = 1100 - margin.left - margin.right,
+            height = 500 - margin.top - margin.bottom;
+
+        let xhr = new XMLHttpRequest();
+        xhr.open("GET", "https://api.synopticlabs.org/v2/stations/timeseries?&token=tk2018mar1420y8ywVx2gnEw1bc8YIV2&stid=WBB&start=" + date + "0000&end=" + date + "2359", false);
+        xhr.send();
+        let response = JSON.parse(xhr.response);
+
+        let copyOfObservations = $.extend(true, {}, response.STATION[0].OBSERVATIONS);
+        delete copyOfObservations.wind_cardinal_direction_set_1d;
+        let dataCsv = "";
+        let select = $("#metric");
+        for (let observation in copyOfObservations) {
+
+            copyOfObservations[observation] = [];
+            dataCsv += (observation + ',');
+            if (first && observation != "date_time") {
+                let option = $("<option/>").attr("value", observation).text(observation.replace(/_/g, " ").replace(/1/g, "").toUpperCase());
+                select.append(option);
+            }
+        }
+        dataCsv = dataCsv.substr(0, dataCsv.length - 1) + "\n"
+
+        for (let hour = 0; hour < response.STATION[0].OBSERVATIONS.date_time.length; hour += 60) {
+            for (let observation in copyOfObservations) {
+                if (observation != "date_time") {
+                    let temp = 0;
+                    for (let min = hour; min < hour + 60; min++) {
+                        temp += ((response.STATION[0].OBSERVATIONS[observation][min]) || 0);
+                    }
+                    copyOfObservations[observation].push(temp / 60);
+                    dataCsv += (temp / 60 + ",");
+                } else {
+                    copyOfObservations[observation].push(hour / 60);
+                    dataCsv += (hour / 60 + ",");
+                }
+            }
+            dataCsv = dataCsv.substr(0, dataCsv.length - 1) + "\n"
+        }
+        let dataset = d3.csvParse(dataCsv);
+        let xScale = d3.scaleLinear()
+            .domain(d3.extent(copyOfObservations.date_time))
+            .range([0, width - 50]);
+
+        let yScale = d3.scaleLinear()
+            .domain(d3.extent(copyOfObservations[metric]))
+            .range([height, 0]);
+
+        let line = d3.line()
+            .x(function(d) {
+                return xScale(parseInt(d.date_time));
+            })
+            .y(function(d) {
+                return yScale(parseFloat(d[metric]));
+            })
+            .curve(d3.curveMonotoneX);
+
+
+        function transition(path) {
+            path.transition()
+                .duration(2000)
+                .attrTween("stroke-dasharray", tweenDash);
+        }
+
+        function tweenDash() {
+            let l = this.getTotalLength(),
+                i = d3.interpolateString("0," + l, l + "," + l);
+            return function(t) {
+                return i(t);
+            };
+        }
+        let svg = d3.select("body").append("svg")
+            .attr("width", width + margin.left + margin.right)
+            .attr("height", height + margin.top + margin.bottom)
+            .append("g")
+            .attr("transform", "translate(" + 100 + "," + margin.top + ")");
+
+
+        svg.append("g")
+            .attr("class", "x axis")
+            .attr("transform", "translate(0," + height + ")")
+            .transition()
+            .duration(2000)
+            .call(d3.axisBottom(xScale));
+
+
+        svg.append("g")
+            .attr("class", "y axis")
+            .transition()
+            .duration(2000)
+            .call(d3.axisLeft(yScale));
+
+        let path = svg.append("g").attr("class", "g_path");
+        path.append("path")
+            .datum(dataset)
+            .attr("class", "line")
+            .attr("d", line)
+            .call(transition);
+
+        let circle = svg.select(".g_path").selectAll(".dot")
+            .data(dataset)
+            .enter().append("circle")
+            .attr("class", "dot")
+            .attr("cx", function(d) {
+                return xScale(d.date_time)
+            })
+            .attr("cy", function(d) {
+                return yScale(d[metric])
+            })
+            .attr("r", 1)
+            .on("mouseover", function() {
+                this.setAttribute("r", 5)
+            })
+            .on("mouseout", function() {
+                this.setAttribute("r", 1)
+            });
+
+        circle.append("title")
+            .text(function(d) {
+                return "X: " + d.date_time + "\nY: " + d[metric]
+            });
+
+        svg.append("text")
+            .attr("transform", "rotate(-90)")
+            .attr("y", 0 - margin.left - 30)
+            .attr("x", 0 - (height / 2))
+            .attr("dy", "1em")
+            .style("text-anchor", "middle")
+            .html(metric.replace(/_/g, " ").replace(/1/g, "").toUpperCase() + "&#8594;");
+        svg.append("text")
+            .attr("transform","translate(" + (width / 2) + " ," + 450 + ")")
+            .style("text-anchor", "middle")
+            .html("Hours in 24-Hour format &#8594;");
+    }
+</script>
