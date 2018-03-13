@@ -102,7 +102,7 @@
             height = 500 - margin.top - margin.bottom;
 
         let xhr = new XMLHttpRequest();
-        xhr.open("GET", "https://api.synopticlabs.org/v2/stations/timeseries?&token=tk2018mar1420y8ywVx2gnEw1bc8YIV2&stid=WBB&start=" + date + "0000&end=" + date + "2359", false);
+        xhr.open("GET", "https://api.synopticlabs.org/v2/stations/timeseries?&token=bd1075aec2a147f8b209f58f24b97622&stid=WBB&start=" + date + "0000&end=" + date + "2359", false);
         xhr.send();
         let response = JSON.parse(xhr.response);
 
